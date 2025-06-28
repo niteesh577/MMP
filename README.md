@@ -1,12 +1,4 @@
-Below is a polished and GitHub-ready `README.md` that:
 
-1. Introduces your API endpoints clearly
-2. Walks through authentication, memory, agents, schemas, audit logs, and subscriptions
-3. Integrates everything with LangGraph in a step‑by‑step implementation guide
-
----
-
-````markdown
 # 🧠 Memory Protocol Server — LangGraph Integration Guide
 
 ## 🌐 API Base Endpoint  
