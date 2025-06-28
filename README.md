@@ -22,17 +22,22 @@
 ### 1.1 Register / Login
 ```python
 import requests
+import uuid
 
 BASE_URL = "https://mmp-production-2ecc.up.railway.app"
 
-def login_user(email, password):
-    r = requests.post(f"{BASE_URL}/api/auth/login",
-                      json={"email": email, "password": password})
+def register_user(name, email, password):
+    r = requests.post(f"{BASE_URL}/api/auth/register",
+                      json={"name": name, "email": email, "password": password})
     r.raise_for_status()
     return r.json()
 
-auth = login_user("john@example.com", "password123")
-access_token = auth["accessToken"]
+# Using a unique email address to avoid registration conflicts
+unique_email = f"user_{uuid.uuid4()}@example.com"
+auth_response = register_user("Test User", unique_email, "password123")
+access_token = auth_response["accessToken"]
+
+print(f"Registration successful! Access Token: {access_token}")
 ````
 
 ### 1.2 Create API Key (Alt)
@@ -57,26 +62,60 @@ api_key = create_api_key(access_token)
 ### 2.1 Register Agent
 
 ```python
-def register_agent(name, description, capabilities, token=None, api_key=None):
-    headers = {}
-    if token: headers["Authorization"] = f"Bearer {token}"
-    if api_key: headers["x-api-key"] = api_key
+import requests
+import uuid
 
-    r = requests.post(
+BASE_URL = "https://mmp-production-2ecc.up.railway.app"
+
+def register_agent_correct(agent_id, name, memory_types, token):
+    """Register agent with correct payload format"""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "agentId": agent_id,
+        "name": name,
+        "memoryTypes": memory_types,
+        "schemaUrl": "https://your-schema-url.com/schema.json",  # optional
+        
+    }
+    
+    print(f"�� Sending request to: {BASE_URL}/api/agents")
+    print(f"📦 Payload: {payload}")
+    
+    response = requests.post(
         f"{BASE_URL}/api/agents",
-        json={"name": name, "description": description, "capabilities": capabilities},
+        json=payload,
         headers=headers
     )
-    r.raise_for_status()
-    return r.json()
+    
+    print(f"📊 Status Code: {response.status_code}")
+    print(f"📝 Response: {response.text}")
+    
+    if response.status_code == 201:
+        print("✅ Agent registered successfully!")
+        return response.json()
+    else:
+        print(f"❌ Error: {response.status_code}")
+        return None
 
-agent = register_agent(
+# Generate a unique agent ID
+agent_id = f"langgraph-agent-{uuid.uuid4().hex[:8]}"
+
+# Register your agent with correct format
+agent = register_agent_correct(
+    agent_id=agent_id,
     name="LangGraph Memory Agent",
-    description="Persistent memory assistant for LangGraph",
-    capabilities=["conversation", "memory_management"],
+    memory_types=["conversation_history", "user_profile", "facts", "preferences"],
     token=access_token
 )
-agent_id = agent["agentId"]
+
+if agent:
+    print(f"�� Agent ID: {agent['agentId']}")
+    print(f"�� Agent Name: {agent['name']}")
+    print(f"🧠 Memory Types: {agent['memoryTypes']}")
 ```
 
 ### 2.2 Fetch Agent Info
@@ -133,6 +172,147 @@ def delete_memory(memory_id, token=None, api_key=None):
     return r.status_code == 200
 ```
 
+### 3.5 Complete memory Management
+
+```python
+import requests
+import json
+
+BASE_URL = "https://mmp-production-2ecc.up.railway.app"
+
+class MemoryProtocolClient:
+    def __init__(self, access_token, agent_id):
+        self.access_token = access_token
+        self.agent_id = agent_id
+        self.headers = {"Authorization": f"Bearer {access_token}"}
+    
+    def store_memory(self, memory_type, key, data, metadata=None):
+        """Store memory entry"""
+        payload = {
+            "agentId": self.agent_id,
+            "memoryType": memory_type,
+            "key": key,
+            "data": data,
+            "metadata": metadata or {}
+        }
+        
+        response = requests.post(f"{BASE_URL}/api/memory", json=payload, headers=self.headers)
+        
+        if response.status_code == 201:
+            print(f"✅ Stored memory: {key}")
+            return response.json()
+        else:
+            print(f"❌ Failed to store memory: {response.status_code}")
+            print(f"Response: {response.text}")
+            response.raise_for_status()
+    
+    def get_memory(self, memory_type=None, key=None, limit=50):
+        """Get memory entries"""
+        params = {"agentId": self.agent_id, "limit": limit}
+        if memory_type:
+            params["memoryType"] = memory_type
+        if key:
+            params["key"] = key
+            
+        response = requests.get(f"{BASE_URL}/api/memory", params=params, headers=self.headers)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"❌ Failed to get memory: {response.status_code}")
+            response.raise_for_status()
+    
+    def update_memory(self, memory_id, data, metadata=None):
+        """Update memory entry"""
+        payload = {"data": data}
+        if metadata:
+            payload["metadata"] = metadata
+            
+        response = requests.put(f"{BASE_URL}/api/memory/{memory_id}", json=payload, headers=self.headers)
+        
+        if response.status_code == 200:
+            print(f"✅ Updated memory: {memory_id}")
+            return response.json()
+        else:
+            print(f"❌ Failed to update memory: {response.status_code}")
+            response.raise_for_status()
+    
+    def delete_memory(self, memory_type, key):
+        """Delete memory entry"""
+        params = {
+            "agentId": self.agent_id,
+            "memoryType": memory_type,
+            "key": key
+        }
+        
+        response = requests.delete(f"{BASE_URL}/api/memory", params=params, headers=self.headers)
+        
+        if response.status_code == 200:
+            print(f"✅ Deleted memory: {key}")
+            return response.json()
+        else:
+            print(f"❌ Failed to delete memory: {response.status_code}")
+            response.raise_for_status()
+
+# Usage example
+def example_usage():
+    # Initialize client
+    client = MemoryProtocolClient(
+        access_token=access_token,
+        agent_id=agent_id
+    )
+    
+    # Store conversation memory
+    conversation_memory = client.store_memory(
+        memory_type="conversation_history",
+        key="user-123-session-1",
+        data={
+            "messages": [
+                {"role": "user", "content": "Hello, how are you?"},
+                {"role": "assistant", "content": "I'm doing well, thank you!"}
+            ],
+            "session_id": "session-1",
+            "timestamp": "2025-06-28T17:00:00Z"
+        },
+        metadata={
+            "user_id": "user-123",
+            "session_duration": 300,
+            "language": "en"
+        }
+    )
+    
+    # Store user profile
+    user_profile = client.store_memory(
+        memory_type="user_profile",
+        key="user-123-profile",
+        data={
+            "name": "John Doe",
+            "email": "john@example.com",
+            "preferences": {
+                "language": "en",
+                "timezone": "UTC",
+                "notifications": True
+            }
+        },
+        metadata={
+            "created_at": "2025-06-28T17:00:00Z",
+            "source": "registration"
+        }
+    )
+    
+    # Get all memories for the agent
+    all_memories = client.get_memory()
+    print(f"�� Found {len(all_memories['memories'])} memory entries")
+    
+    # Get specific memory type
+    conversations = client.get_memory(memory_type="conversation_history")
+    print(f"�� Found {len(conversations['memories'])} conversation entries")
+
+# Run the example
+if __name__ == "__main__":
+    example_usage()
+```
+
 ---
 
 ## 4. Schema Management 📊
@@ -140,15 +320,88 @@ def delete_memory(memory_id, token=None, api_key=None):
 ### 4.1 Create Schema
 
 ```python
-def create_schema(name, fields, description, token=None, api_key=None):
+def create_schema(agent_id, schemas, token=None, api_key=None):
+    """Create/update schema for an agent"""
     headers = {"Authorization": f"Bearer {token}"} if token else {"x-api-key": api_key}
-    r = requests.post(
-        f"{BASE_URL}/api/schemas",
-        json={"name": name, "fields": fields, "description": description},
+
+    payload = {
+        "schemas": schemas  # Object with memoryType -> JSON Schema mappings
+    }
+
+    print(f" Sending schema for agent: {agent_id}")
+    print(f"📦 Payload: {json.dumps(payload, indent=2)}")
+
+    response = requests.put(
+        f"{BASE_URL}/api/schemas/{agent_id}",
+        json=payload,
         headers=headers
     )
-    r.raise_for_status()
-    return r.json()
+
+    print(f"📊 Status Code: {response.status_code}")
+    print(f"📝 Response: {response.text}")
+
+    if response.status_code == 200:
+        print("✅ Schema created/updated successfully!")
+        return response.json()
+    else:
+        print(f"❌ Error: {response.status_code}")
+        response.raise_for_status()
+        return None
+custom_schemas = {
+        "user_profile": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "minLength": 1},
+                # Changed format: "email" to pattern for email validation
+                "email": {"type": "string", "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"},
+                "age": {"type": "number", "minimum": 0},
+                "preferences": {
+                    "type": "object",
+                    "properties": {
+                        "theme": {"type": "string", "enum": ["light", "dark"]},
+                        "language": {"type": "string"},
+                        "notifications": {"type": "boolean"}
+                    }
+                }
+            },
+            "required": ["name", "email"]
+        },
+        "conversation_history": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {"type": "string", "enum": ["user", "assistant", "system"]},
+                            "content": {"type": "string"},
+                            "timestamp": {"type": "string"}, # Removed format: "date-time"
+                            "metadata": {"type": "object"}
+                        },
+                        "required": ["role", "content"]
+                    }
+                },
+                "session_id": {"type": "string"},
+                "summary": {"type": "string"}
+            },
+            "required": ["messages"]
+        },
+        "langgraph_state": {
+            "type": "object",
+            "properties": {
+                "graph_id": {"type": "string"},
+                "node_id": {"type": "string"},
+                "state": {"type": "object"},
+                "metadata": {"type": "object"},
+                "timestamp": {"type": "string"} # Removed format: "date-time"
+            },
+            "required": ["graph_id", "node_id", "state"]
+        }
+    }
+
+
+create_schema(agent_id, custom_schemas, access_token)
 ```
 
 ---
