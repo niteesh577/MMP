@@ -186,6 +186,3 @@ memories = response.json()
 - Input validation
 - Audit logging
 
-## 📝 License
-
-MIT License - feel free to use this for your projects! 
